@@ -15,6 +15,7 @@ import re
 import string
 from functools import partial
 from multiprocessing import Pool
+import pdb
 
 import numpy as np
 import tqdm
@@ -118,6 +119,8 @@ def generate_instruction_following_data(
     top_p=1.0,
     num_cpus=16,
 ):
+
+    # 175개의 seed task 다 가져옴 -> 그냥 json 데이터를 하나하나 가져옴
     seed_tasks = [json.loads(l) for l in open(seed_tasks_path, "r")]
     seed_instruction_data = [
         {"instruction": t["instruction"], "input": t["instances"][0]["input"], "output": t["instances"][0]["output"]}
@@ -127,13 +130,16 @@ def generate_instruction_following_data(
 
     os.makedirs(output_dir, exist_ok=True)
     request_idx = 0
+
     # load the LM-generated instructions
     machine_instruction_data = []
     if os.path.exists(os.path.join(output_dir, "regen.json")):
         machine_instruction_data = utils.jload(os.path.join(output_dir, "regen.json"))
         print(f"Loaded {len(machine_instruction_data)} machine-generated instructions")
 
+
     # similarities = {}
+    # 유사도 체크용
     scorer = rouge_scorer.RougeScorer(["rougeL"], use_stemmer=False)
 
     # now let's generate new instructions!
@@ -141,15 +147,21 @@ def generate_instruction_following_data(
     if machine_instruction_data:
         progress_bar.update(len(machine_instruction_data))
 
-    # first we tokenize all the seed instructions and generated machine instructions
+    # all_instructions = seed_instruction_data + machine_instruction_data
     all_instructions = [d["instruction"] for d in seed_instruction_data] + [
         d["instruction"] for d in machine_instruction_data
     ]
+
+    # tokenize all data (seed_instruction_data + machine_instruction_data)
     all_instruction_tokens = [scorer._tokenizer.tokenize(inst) for inst in all_instructions]
 
+
+    # num_instructions_to_generate 만큼 instruction 생성
     while len(machine_instruction_data) < num_instructions_to_generate:
         request_idx += 1
 
+        # request_batch_size 단위로 prompt를 생성해서 batch_inputs에 넣어줘라
+        # few shot learning을 위한 prompt를 encoding 하기 위해
         batch_inputs = []
         for _ in range(request_batch_size):
             # only sampling from the seed tasks
